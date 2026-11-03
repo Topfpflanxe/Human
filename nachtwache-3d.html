@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nachtwache 3D</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font:16px/1.5 "Courier New",monospace;color:#d8c9a3}
+#g{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;display:block}
+#fx{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,.85)),repeating-linear-gradient(0deg,rgba(0,0,0,.25) 0 1px,transparent 1px 3px)}
+#fl{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .25s}
+#hud{position:fixed;left:14px;top:10px;font-size:14px;text-shadow:0 0 4px #000}
+#pr{position:fixed;left:50%;bottom:14%;transform:translateX(-50%);color:#d9a441;text-shadow:0 0 6px #000;text-align:center}
+#dot{position:fixed;left:50%;top:50%;width:4px;height:4px;margin:-2px;background:rgba(216,201,163,.7);border-radius:50%}
+#ov{position:fixed;inset:0;background:rgba(6,4,2,.88);display:flex;align-items:center;justify-content:center;padding:12px}
+#ov[hidden]{display:none}
+.box{display:flex;gap:16px;align-items:center;background:#211a12;border:1px solid #3a2f20;padding:16px;max-width:760px;flex-wrap:wrap;justify-content:center}
+canvas#k{width:260px;height:260px;border:2px solid #3a2f20;image-rendering:pixelated;background:#000}
+#side{flex:1;min-width:240px}
+#info{min-height:70px;margin-bottom:8px}
+button{font:inherit;color:#d8c9a3;background:#2c2216;border:1px solid #8f8164;padding:8px 12px;cursor:pointer;margin:3px 4px 3px 0}
+button:hover:not(:disabled){border-color:#c9782b;color:#c9782b}
+button:focus-visible{outline:2px solid #c9782b;outline-offset:2px}
+button:disabled{opacity:.35;cursor:default}
+button.go{border-color:#8fa36a}
+button.no{border-color:#a8322a}
+</style>
+</head>
+<body>
+<canvas id="g"></canvas><div id="fx"></div><div id="dot"></div><div id="fl"></div>
+<div id="hud"></div><div id="pr"></div>
+<div id="ov" hidden><div class="box"><canvas id="k" width="260" height="260"></canvas><div id="side"><div id="info"></div><div id="btns"></div></div></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ---------- Daten ----------
+const NIGHTS=5,ENERGY=8;
+const KEYS=['eyes','mouth','hands','skin','shadow'];
+const LAB={eyes:'Augen',mouth:'Zähne',hands:'Hände',skin:'Haut',shadow:'Schatten'};
+const RULE={eyes:'blinzeln nie',mouth:'haben spitze Zähne',hands:'haben sechs Finger',skin:'haben kalte Haut',shadow:'werfen keinen Schatten'};
+const BAD={eyes:'Kein Lid. Die Augen sind riesig und blinzeln nie.',mouth:'Zwei Reihen spitzer Zähne.',hands:'Sechs Finger an einer Hand.',skin:'Die Hand ist eiskalt: 14 °C.',shadow:'Das Kerzenlicht wirft keinen Schatten von ihm.'};
+const OK={eyes:'Müde, rote Ränder. Er blinzelt.',mouth:'Normale Zähne, einer steht schief.',hands:'Fünf Finger, rissige Haut.',skin:'Warm: 36 °C.',shadow:'Sein Schatten zittert an der Wand.'};
+const NAMES=['Herr Brandt','Frau Keller','Der junge Tom','Oma Reiter','Pastor Voss','Mechaniker Dirk','Frau Albers','Der Lehrer','Mia','Herr Okafor','Frau Wójcik'];
+const LINES=['Bitte, die Sonne hat mein Dach verbrannt.','Ich habe Wasser dabei. Ich teile es mit Ihnen.','Warum zögern Sie? Ich stehe seit Stunden hier.','Machen Sie auf. Hinter mir ist etwas.','Ich bin ein Mensch. Was sollte ich sonst sein?','Ihre Nachbarn haben mich nicht reingelassen. Jetzt sind sie weg.'];
+const SK=['#cdb894','#b8a07a','#d5c4a4','#9c7a58'],HR=['#2b1d12','#6b4a2a','#c8b080','#444444'],CL=[0x5a4a3a,0x3d4f5c,0x6a3b36,0x4c5a3a];
+const rnd=n=>Math.floor(Math.random()*n),pick=a=>a[rnd(a.length)],shuffle=a=>a.map(v=>[Math.random(),v]).sort((p,q)=>p[0]-q[0]).map(p=>p[1]);
+
+// ---------- 3D-Szene ----------
+const cvs=document.getElementById('g');
+const R=new THREE.WebGLRenderer({canvas:cvs,antialias:false});
+const sc=new THREE.Scene();sc.background=new THREE.Color(0x050302);sc.fog=new THREE.FogExp2(0x050302,.13);
+const cam=new THREE.PerspectiveCamera(72,1,.1,40);cam.rotation.order='YXZ';
+sc.add(new THREE.AmbientLight(0x3a2c20,1.1));
+const torch=new THREE.PointLight(0xffd9a0,1.1,8);cam.add(torch);sc.add(cam);
+[[6,2.4,2,0xff9a50,.8],[6,2.4,6,0xffb070,.6],[10.5,2.4,1.5,0xff6a30,.5],[2,2.4,2,0xffb070,.5]].forEach(a=>{const l=new THREE.PointLight(a[3],a[4],7);l.position.set(a[0],a[1],a[2]);sc.add(l)});
+const doorL=new THREE.PointLight(0xffa040,0,5);doorL.position.set(6,1.8,7.3);sc.add(doorL);
+function size(){const s=Math.max(2,Math.round(innerHeight/270));R.setSize(Math.floor(innerWidth/s),Math.floor(innerHeight/s),false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}
+addEventListener('resize',size);size();
+
+function mkTex(w,draw,rx,ry){const c=document.createElement('canvas');c.width=c.height=w;draw(c.getContext('2d'));const t=new THREE.CanvasTexture(c);t.magFilter=THREE.NearestFilter;t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rx||1,ry||1);return t}
+const wood=mkTex(64,q=>{q.fillStyle='#4a3623';q.fillRect(0,0,64,64);q.fillStyle='#33251a';for(let i=0;i<64;i+=16)q.fillRect(0,i,64,2);for(let i=0;i<40;i++){q.fillStyle='rgba(0,0,0,.14)';q.fillRect(rnd(64),rnd(64),rnd(10)+3,1)}},12,8);
+const fire=mkTex(64,q=>{const g=q.createLinearGradient(0,0,0,64);g.addColorStop(0,'#1a0a05');g.addColorStop(.7,'#ff7a2a');g.addColorStop(1,'#ffd27a');q.fillStyle=g;q.fillRect(0,0,64,64)});
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(12,8),new THREE.MeshLambertMaterial({map:wood}));floor.rotation.x=-Math.PI/2;floor.position.set(6,0,4);sc.add(floor);
+const ceil=new THREE.Mesh(new THREE.PlaneGeometry(12,8),new THREE.MeshLambertMaterial({color:0x2a2018}));ceil.rotation.x=Math.PI/2;ceil.position.set(6,2.8,4);sc.add(ceil);
+const BOX=[];
+function box(x1,z1,x2,z2,h,col,solid=true){const m=new THREE.Mesh(new THREE.BoxGeometry(x2-x1,h,z2-z1),new THREE.MeshLambertMaterial({color:col}));m.position.set((x1+x2)/2,h/2,(z1+z2)/2);sc.add(m);if(solid)BOX.push({x1,z1,x2,z2});return m}
+const WC=0x6b5a45,wh=(z,a,b)=>box(a,z-.1,b,z+.1,2.8,WC),wv=(x,a,b)=>box(x-.1,a,x+.1,b,2.8,WC);
+wh(0,0,12);wh(8,0,5.5);wh(8,6.5,12);wh(4,0,1.5);wh(4,2.5,5.5);wh(4,6.5,9.5);wh(4,10.5,12);wv(0,0,8);wv(12,0,8);wv(4,0,4);wv(8,0,4);
+const doorM=box(5.5,7.88,6.5,8.12,2.2,0x5a3a1f);
+const eye=box(5.96,7.8,6.04,7.88,.04,0x000000,false);eye.position.y=1.6;
+box(.6,.4,2.6,1.2,.9,0x55483a);box(.6,2.6,1.6,3.6,.8,0x6b4a2a);box(5,1.8,7,2.5,.7,0x4a2f2a);box(9,.2,11.8,2.4,.6,0x6a5a7a);
+const radio=box(9,7.5,9.6,8,1,0x884422);
+[2,6,10.5].forEach(x=>{const m=new THREE.Mesh(new THREE.PlaneGeometry(1.4,1.1),new THREE.MeshBasicMaterial({map:fire}));m.position.set(x,1.5,.12);sc.add(m);box(x-.04,.05,x+.04,.1,1.1,0x1a120a,false).position.set(x,1.5,.13)});
+const winL=new THREE.PointLight(0xff6a20,.7,5);winL.position.set(6,1.5,.6);sc.add(winL);
+
+function headTex(g){return mkTex(64,q=>{q.fillStyle=g.sk;q.fillRect(0,0,64,64);q.fillStyle=g.hr;q.fillRect(0,0,64,14);
+  q.fillStyle='#eee';q.fillRect(14,28,12,7);q.fillRect(38,28,12,7);q.fillStyle='#1a120a';q.fillRect(19,29,4,5);q.fillRect(43,29,4,5);
+  q.fillStyle='#8a6e4c';q.fillRect(31,36,3,8);q.fillStyle='#4a1d12';q.fillRect(23,50,18,3)})}
+function person(g){
+  const G=new THREE.Group(),M=c=>new THREE.MeshLambertMaterial({color:c});
+  const add=(w,h,d,x,y,c)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),M(c));m.position.set(x,y,0);G.add(m)};
+  add(.16,.8,.2,-.12,.4,0x1d1812);add(.16,.8,.2,.12,.4,0x1d1812);add(.5,.65,.28,0,1.12,g.cl);add(.12,.6,.14,-.33,1.1,g.sk);add(.12,.6,.14,.33,1.1,g.sk);
+  const head=new THREE.Mesh(new THREE.BoxGeometry(.3,.32,.3),[M(g.sk),M(g.sk),M(g.hr),M(g.sk),new THREE.MeshLambertMaterial({map:headTex(g)}),M(g.hr)]);head.position.y=1.62;G.add(head);return G;
+}
+const SLOTS=[[4.8,1],[7.2,1],[4.7,3.4],[7.3,3.4],[5.5,.7],[6.6,.7]];
+
+// ---------- Zustand ----------
+let S={phase:'title',inside:[],queue:[],active:[],lives:3,saved:0,guilt:0,night:0,energy:0},yaw=0,pitch=0,bob=0,P=new THREE.Vector3(6,1.6,6.5),keys={},ac,msg='',msgT=0,atDoor=false,cur=null;
+const hud=document.getElementById('hud'),pr=document.getElementById('pr');
+function say(m){msg=m;msgT=4}
+function mkGuest(){
+  const vis=Math.random()<.45,t={};KEYS.forEach(k=>t[k]=false);
+  if(vis)shuffle(S.active).slice(0,1+rnd(2)).forEach(k=>t[k]=true);
+  KEYS.filter(k=>!S.active.includes(k)).forEach(k=>{if(Math.random()<.25)t[k]=true});
+  return{visitor:vis,t,name:pick(NAMES),line:pick(LINES),rev:{},last:'',sk:pick(SK),hr:pick(HR),cl:pick(CL)};
+}
+function startNight(){
+  S.night++;S.active=shuffle(KEYS).slice(0,2);S.energy=ENERGY;S.door=null;S.timer=4;S.kn=0;
+  S.queue=[];for(let i=0;i<3+Math.min(S.night,3);i++)S.queue.push(mkGuest());
+  P.set(6,1.6,6.5);yaw=0;pitch=0;closeUI();say('Nacht '+S.night+'. Hör das Radio an der Haustür, dort steht, woran du Besucher erkennst.');
+}
+function newGame(){S={phase:'walk',inside:[],queue:[],active:[],lives:3,saved:0,guilt:0,night:0,energy:0};startNight();cvs.requestPointerLock()}
+function snd(f){try{ac=ac||new AudioContext();f()}catch(e){}}
+function knock(){snd(()=>{for(let i=0;i<3;i++){const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime+i*.22;o.frequency.value=90;o.connect(g);g.connect(ac.destination);g.gain.setValueAtTime(.6,t);g.gain.exponentialRampToValueAtTime(.001,t+.15);o.start(t);o.stop(t+.16)}})}
+function shot(){snd(()=>{const n=ac.sampleRate*.3,b=ac.createBuffer(1,n,ac.sampleRate),d=b.getChannelData(0);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3);const s=ac.createBufferSource();s.buffer=b;s.connect(ac.destination);s.start()});const f=document.getElementById('fl');f.style.transition='none';f.style.opacity=.9;setTimeout(()=>{f.style.transition='opacity .4s';f.style.opacity=0},60)}
+
+// ---------- Overlay ----------
+const ov=document.getElementById('ov'),kc=document.getElementById('k'),k=kc.getContext('2d'),info=document.getElementById('info'),btns=document.getElementById('btns');
+function ui(html,list,draw){
+  document.exitPointerLock();ov.hidden=false;S.phase='ui';info.innerHTML=html;btns.innerHTML='';
+  list.forEach(([l,f,d,cls])=>{const b=document.createElement('button');b.textContent=l;b.disabled=!!d;if(cls)b.className=cls;b.onclick=f;btns.appendChild(b)});
+  kc.style.display=draw?'block':'none';if(draw)draw(k,cur);
+}
+function closeUI(){ov.hidden=true;S.phase='walk';cvs.requestPointerLock()}
+function end(){
+  let t,m;
+  if(S.lives<=0){t='Du bist tot.';m='Ein Besucher hat dich in der Nacht gefunden. Das Haus bleibt still.'}
+  else if(S.guilt>=3){t='Du hast überlebt, aber nicht allein.';m='Du hast zu viele Menschen vor der Tür gelassen. Im Dorf redet niemand mehr mit dir.'}
+  else if(S.saved>=5){t='Das Haus wird zur Zuflucht.';m='Du hast viele Menschen gerettet. Am Morgen sitzen sie bei dir am Tisch.'}
+  else{t='Du hast überlebt.';m='Du bist durch '+NIGHTS+' Nächte gekommen. Ob das genug war, weißt du selbst.'}
+  ui('<h2>'+t+'</h2>'+m+'<br>Gerettet: '+S.saved+' · Schuld: '+S.guilt+' · Leben: '+Math.max(S.lives,0),[['Neu starten',()=>{S.inside.forEach(i=>sc.remove(i.m));newGame()},0,'go']]);S.phase='end';
+}
+function sleep(){
+  const v=S.inside.filter(i=>i.g.visitor).length,h=S.inside.length-v;S.lives-=v;S.saved+=h;S.inside.forEach(i=>sc.remove(i.m));S.inside=[];
+  const rep='Nacht '+S.night+' ist vorbei. '+(v?v+' Besucher im Haus haben dich angegriffen. ':'Niemand hat dich angegriffen. ')+(h?h+' Menschen sind gerettet.':'');
+  if(S.lives<=0||S.night>=NIGHTS)return ui(rep,[['Weiter',end]]);
+  ui(rep,[['Nächste Nacht',startNight,0,'go']]);
+}
+function peep(view){
+  const g=cur.g;view=view||'face';
+  const b=[['Gesicht',()=>peep('face')]];
+  KEYS.forEach(q=>b.push([LAB[q]+(g.rev[q]?' ✓':''),()=>inspect(q),S.energy<=0&&!g.rev[q]]));
+  if(atDoor)b.push(['Einlassen',()=>decide(true),0,'go'],['Abweisen',()=>decide(false),0,'no']);
+  else b.push(['Erledigen',()=>kill(cur),0,'no']);
+  b.push(['Zurücktreten',closeUI]);
+  ui('<b>'+g.name+'</b> · Energie: '+'▮'.repeat(S.energy)+'<br>'+(g.last||'„'+g.line+'“'),b,(c)=>V[view](c,g));
+}
+function inspect(q){const g=cur.g;if(!g.rev[q]){g.rev[q]=1;S.energy--}g.last=g.t[q]?BAD[q]:OK[q];peep(q)}
+function decide(inn){
+  const g=cur.g;let m;S.door=null;S.timer=5+Math.random()*5;
+  if(inn){const sl=SLOTS[S.inside.length%SLOTS.length],mesh=person(g);mesh.position.set(sl[0],0,sl[1]);sc.add(mesh);S.inside.push({g,m:mesh});m=g.name+' kommt herein und stellt sich ins Wohnzimmer.'}
+  else if(g.visitor)m='Du schiebst den Riegel vor. Draußen kratzt es, dann ist es still.';
+  else{S.guilt++;m=g.name+' war ein Mensch. Du hörst Schritte, dann Schreie.'}
+  ui(m,[['Weiter',closeUI]]);
+}
+function kill(i){
+  shot();S.inside=S.inside.filter(q=>q!==i);sc.remove(i.m);
+  if(i.g.visitor)ui('Es war ein Besucher. Er fällt in sich zusammen.',[['Weiter',closeUI]]);
+  else{S.guilt+=2;ui('Es war ein Mensch. Du hast einen Unschuldigen getötet.',[['Weiter',closeUI]])}
+}
+
+// ---------- Nahaufnahmen ----------
+const V={};
+function ell(c,x0,y0,rx,ry,col){c.fillStyle=col;c.beginPath();c.ellipse(x0,y0,rx,ry,0,0,7);c.fill()}
+V.face=(c,g)=>{
+  c.fillStyle='#0a0705';c.fillRect(0,0,260,260);ell(c,130,270,100,60,'#241a12');
+  ell(c,130,125,66,82,g.sk);ell(c,130,70,70,40,g.hr);
+  [100,160].forEach(px=>{ell(c,px,118,12,7,'#eee');ell(c,px,118,4,4,'#2a1d10')});
+  c.strokeStyle='#7a5f40';c.lineWidth=3;c.beginPath();c.moveTo(130,128);c.lineTo(124,152);c.lineTo(136,152);c.stroke();
+  c.strokeStyle='#3a1d12';c.beginPath();c.moveTo(108,178);c.quadraticCurveTo(130,186,152,177);c.stroke();
+  c.strokeStyle='#000';c.lineWidth=90;c.beginPath();c.arc(130,130,150,0,7);c.stroke();
+};
+V.mouth=(c,g)=>{
+  c.fillStyle='#4a1410';c.fillRect(0,0,260,260);c.fillStyle='#7a2f2a';c.fillRect(0,0,260,64);c.fillRect(0,196,260,64);
+  if(g.t.mouth){
+    for(let i=0;i<12;i++){const b=8+i*21;c.fillStyle='#e6ddc2';
+      c.beginPath();c.moveTo(b,64);c.lineTo(b+19,64);c.lineTo(b+10,64+50+(i%3)*9);c.fill();
+      c.beginPath();c.moveTo(b+10,196);c.lineTo(b+29,196);c.lineTo(b+19,196-48-(i%2)*10);c.fill()}
+  }else{
+    for(let i=0;i<8;i++){c.fillStyle=i==3?'#cdbf94':'#e6ddc2';c.fillRect(20+i*28,64,25,i==3?30:40);c.fillRect(20+i*28,196-38,25,38)}
+  }
+};
+V.eyes=(c,g)=>{
+  c.fillStyle=g.sk;c.fillRect(0,0,260,260);const v=g.t.eyes;
+  [68,192].forEach(px=>{
+    ell(c,px,130,v?58:46,v?62:26,v?'#e6e2c8':'#eee');
+    if(v){c.strokeStyle='#a8322a';c.lineWidth=1.5;for(let i=0;i<10;i++){const a=i*.63;c.beginPath();c.moveTo(px+Math.cos(a)*56,130+Math.sin(a)*60);c.lineTo(px+Math.cos(a)*24,130+Math.sin(a)*24);c.stroke()}}
+    ell(c,px,130,v?12:20,v?12:20,'#4a2f1a');
+    if(v){c.fillStyle='#000';c.fillRect(px-2,114,4,32)}else ell(c,px,130,8,8,'#000');
+    if(!v){c.strokeStyle='#3a2a1c';c.lineWidth=5;c.beginPath();c.ellipse(px,130,46,26,0,3.3,6.1);c.stroke();c.beginPath();c.ellipse(px,130,46,26,0,.1,3.1);c.stroke()}
+  });
+};
+V.hands=(c,g)=>{
+  c.fillStyle='#17110c';c.fillRect(0,0,260,260);const n=g.t.hands?6:5,fw=150/n;
+  c.fillStyle=g.sk;c.fillRect(55,140,150,100);
+  for(let i=0;i<n;i++){const fx=55+i*fw,hh=60+[4,0,10,0,-2,-8][i%6]+(i==0?-30:0);c.fillStyle=g.sk;c.fillRect(fx+2,140-hh,fw-4,hh+4);ell(c,fx+fw/2,140-hh,fw/2-2,8,g.sk);ell(c,fx+fw/2,140-hh+3,fw/2-6,6,'#e6d8bc')}
+  c.strokeStyle='#8a6e4c';c.lineWidth=2;c.beginPath();c.moveTo(70,200);c.lineTo(190,190);c.stroke();
+};
+V.skin=(c,g)=>{
+  const cold=g.t.skin,gr=c.createRadialGradient(130,110,10,130,110,150);
+  if(cold){gr.addColorStop(0,'#bfe6ff');gr.addColorStop(.5,'#3a7fd0');gr.addColorStop(1,'#0b1530')}
+  else{gr.addColorStop(0,'#ffe08a');gr.addColorStop(.5,'#c9511e');gr.addColorStop(1,'#2b0f12')}
+  c.fillStyle=gr;c.fillRect(0,0,260,260);c.fillStyle='rgba(0,0,0,.6)';c.fillRect(0,196,260,64);
+  c.fillStyle='#e8e0c8';c.font='bold 34px "Courier New"';c.textAlign='center';
+  c.fillText(cold?(13+Math.random()*3).toFixed(1)+' °C':(36+Math.random()*.9).toFixed(1)+' °C',130,240);c.textAlign='left';
+};
+V.shadow=(c,g)=>{
+  c.fillStyle='#2a2118';c.fillRect(0,0,260,260);const gr=c.createRadialGradient(40,60,5,40,60,230);
+  gr.addColorStop(0,'rgba(255,200,110,.85)');gr.addColorStop(1,'rgba(0,0,0,.2)');c.fillStyle=gr;c.fillRect(0,0,260,260);
+  ell(c,40,60,5,9,'#fff3c0');
+  if(!g.t.shadow){ell(c,175,115,34,40,'rgba(10,6,3,.8)');ell(c,175,215,78,60,'rgba(10,6,3,.8)')}
+};
+
+// ---------- Interaktion ----------
+function targets(){
+  const t=[{k:'door',x:6,z:7.5,n:S.door?'E: Spion benutzen':'Haustür'},{k:'radio',x:9.3,z:7.3,n:'E: Radio hören'},{k:'bed',x:10.4,z:2.9,n:'E: Schlafen'}];
+  S.inside.forEach(i=>t.push({k:'g',i,x:i.m.position.x,z:i.m.position.z,n:'E: '+i.g.name+' ansehen'}));return t;
+}
+function look(){
+  const fx=-Math.sin(yaw),fz=-Math.cos(yaw);let b=null,bs=9;
+  for(const o of targets()){const dx=o.x-P.x,dz=o.z-P.z,d=Math.hypot(dx,dz);if(d>0&&d<2.2&&(dx*fx+dz*fz)/d>.8&&d<bs){bs=d;b=o}}
+  return b;
+}
+function interact(){
+  if(S.phase!=='walk')return;const o=look();if(!o)return;
+  if(o.k==='door'){if(S.door){cur=S.door;atDoor=true;peep()}else say('Niemand an der Tür.')}
+  else if(o.k==='radio')ui('Das Radio rauscht. Eine Stimme: „Heute Nacht erkennt man Besucher daran, dass sie '+S.active.map(q=>RULE[q]).join(' und ')+'. Ein Besucher zeigt mindestens eins davon. Menschen zeigen es nie.“',[['Ausschalten',closeUI]]);
+  else if(o.k==='bed'){if(S.door||S.queue.length)say('Es sind noch Gäste unterwegs.');else sleep()}
+  else{cur=o.i;atDoor=false;peep()}
+}
+
+// ---------- Schleife ----------
+const blocked=(x,z)=>BOX.some(b=>x>b.x1-.3&&x<b.x2+.3&&z>b.z1-.3&&z<b.z2+.3);
+let last=0,tm=0;
+function loop(t){
+  const dt=Math.min((t-last)/1000,.05);last=t;tm+=dt;if(msgT>0)msgT-=dt;
+  if(S.phase==='walk'){
+    const f=(keys.w?1:0)-(keys.s?1:0),r=(keys.d?1:0)-(keys.a?1:0);
+    yaw+=((keys.arrowleft?1:0)-(keys.arrowright?1:0))*1.8*dt;pitch=Math.max(-1.2,Math.min(1.2,pitch+((keys.arrowup?1:0)-(keys.arrowdown?1:0))*1.5*dt));
+    if(f||r){const sp=2.6*dt/Math.hypot(f,r),dx=(-Math.sin(yaw)*f+Math.cos(yaw)*r)*sp,dz=(-Math.cos(yaw)*f-Math.sin(yaw)*r)*sp;
+      if(!blocked(P.x+dx,P.z))P.x+=dx;if(!blocked(P.x,P.z+dz))P.z+=dz;bob+=dt*8}
+    S.timer-=dt;
+    if(!S.door&&S.queue.length&&S.timer<=0){const g=S.queue.shift();S.door={g};S.kn=8;knock();say('Es klopft an der Haustür.')}
+    else if(S.door){S.kn-=dt;if(S.kn<=0){S.kn=8;knock()}}
+  }
+  doorL.intensity=S.door?.6+Math.sin(tm*6)*.4:0;winL.intensity=.6+Math.sin(tm*9)*.15+Math.random()*.1;
+  S.inside.forEach((i,n)=>{i.m.rotation.y=Math.atan2(P.x-i.m.position.x,P.z-i.m.position.z);i.m.position.y=Math.sin(tm*1.5+n)*.01});
+  cam.position.set(P.x,1.6+Math.sin(bob)*.03,P.z);cam.rotation.set(pitch,yaw,0);
+  R.render(sc,cam);
+  const o=S.phase==='walk'&&look(),lk=document.pointerLockElement===cvs;
+  pr.textContent=S.phase==='walk'?(msgT>0?msg:(!lk?'Klicken, um die Maus zu fangen':(o?o.n:''))):'';
+  hud.innerHTML='Nacht '+S.night+'/'+NIGHTS+' · Leben: '+'♥'.repeat(Math.max(S.lives,0))+' · Energie: '+'▮'.repeat(S.energy)+' · Gerettet: '+S.saved+'<br>WASD gehen · Maus schauen · E benutzen';
+  requestAnimationFrame(loop);
+}
+addEventListener('keydown',e=>{const q=e.key.toLowerCase();keys[q]=true;if(q==='e'&&!e.repeat)interact();if(q.startsWith('arrow'))e.preventDefault()});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+addEventListener('mousemove',e=>{if(document.pointerLockElement===cvs&&S.phase==='walk'){yaw-=e.movementX*.0022;pitch=Math.max(-1.2,Math.min(1.2,pitch-e.movementY*.0022))}});
+cvs.addEventListener('click',()=>{if(S.phase==='walk')cvs.requestPointerLock()});
+
+ui('<h2>Nachtwache 3D</h2>Tagsüber brennt die Sonne alles nieder. Nachts klopft es an deiner Tür. Menschen suchen Schutz. Besucher sehen aus wie Menschen, aber ihnen fehlt etwas.<br><br>Hör das Radio neben der Haustür, prüfe Gäste am Spion (jede Prüfung kostet Energie) und entscheide: einlassen oder abweisen. Besucher im Haus kannst du noch erledigen. Überlebe '+NIGHTS+' Nächte.',[['Spiel starten',newGame,0,'go']]);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
