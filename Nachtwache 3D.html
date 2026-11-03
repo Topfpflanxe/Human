@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nachtwache 3D</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font:16px/1.5 "Courier New",monospace;color:#d8c9a3}
+#g{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;display:block}
+#fx{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,.85)),repeating-linear-gradient(0deg,rgba(0,0,0,.25) 0 1px,transparent 1px 3px)}
+#fl{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .25s}
+#hud{position:fixed;left:14px;top:10px;font-size:14px;text-shadow:0 0 4px #000}
+#pr{position:fixed;left:50%;bottom:14%;transform:translateX(-50%);color:#d9a441;text-shadow:0 0 6px #000;text-align:center}
+#dot{position:fixed;left:50%;top:50%;width:4px;height:4px;margin:-2px;background:rgba(216,201,163,.7);border-radius:50%}
+#ov{position:fixed;inset:0;background:rgba(6,4,2,.88);display:flex;align-items:center;justify-content:center;padding:12px}
+#ov[hidden]{display:none}
+.box{display:flex;gap:16px;align-items:center;background:#211a12;border:1px solid #3a2f20;padding:16px;max-width:760px;flex-wrap:wrap;justify-content:center}
+canvas#k{width:260px;height:260px;border:2px solid #3a2f20;image-rendering:pixelated;background:#000}
+#side{flex:1;min-width:240px}
+#info{min-height:70px;margin-bottom:8px}
+button{font:inherit;color:#d8c9a3;background:#2c2216;border:1px solid #8f8164;padding:8px 12px;cursor:pointer;margin:3px 4px 3px 0}
+button:hover:not(:disabled){border-color:#c9782b;color:#c9782b}
+button:focus-visible{outline:2px solid #c9782b;outline-offset:2px}
+button:disabled{opacity:.35;cursor:default}
+button.go{border-color:#8fa36a}
+button.no{border-color:#a8322a}
+#info{min-height:96px;font-size:14px}.nt{margin-top:6px;font-size:12px;color:#9c8f70}button{padding:6px 9px;font-size:13px}.box{max-width:820px}
+</style>
+</head>
+<body>
+<canvas id="g"></canvas><div id="fx"></div><div id="dot"></div><div id="fl"></div>
+<div id="hud"></div><div id="pr"></div>
+<div id="ov" hidden><div class="box"><canvas id="k" width="260" height="260"></canvas><div id="side"><div id="info"></div><div id="btns"></div></div></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ---------- Daten ----------
+const NIGHTS=7,ENERGY=9;
+const KEYS=['eyes','mouth','hands','skin','shadow'];
+const LAB={eyes:'Augen',mouth:'Zähne',hands:'Hände',skin:'Haut',shadow:'Schatten'};
+const RULE={eyes:'Augen',mouth:'Zähne',hands:'Hände',skin:'Haut',shadow:'Schatten'};
+const BAD={eyes:'Kein Lid. Die Augen sind riesig und blinzeln nie.',mouth:'Zwei Reihen spitzer Zähne.',hands:'Sechs Finger an einer Hand.',skin:'Die Hand ist eiskalt: 14 °C.',shadow:'Das Kerzenlicht wirft keinen Schatten von ihm.'};
+const OK={eyes:'Müde, rote Ränder. Er blinzelt.',mouth:'Normale Zähne, einer steht schief.',hands:'Fünf Finger, rissige Haut.',skin:'Warm: 36 °C.',shadow:'Der Schatten zittert an der Wand.'};
+const MM=['Jonas','Klaus','Tom','Dirk','Paul','Emil','Samuel','Henrik','Anton','Felix','Kofi'],FF=['Mia','Greta','Hanna','Ruth','Lena','Marta','Ida','Elke','Nora','Zofia','Anja'],SUR=['Brandt','Keller','Reiter','Voss','Albers','Hahn','Okafor','Wójcik','Lenz','Roth','Bauer','Sommer'];
+const SK=['#d9c3a0','#c9a77e','#e2cfb2','#a67c58','#7a5236'],HR=['#2b1d12','#6b4a2a','#c8b080','#444444','#8a3b1c','#111111'],CL=['#5a4a3a','#3d4f5c','#6a3b36','#4c5a3a','#7a6a50','#2e3342'],PC=['#2a2622','#3a3226','#27303a'],EY=['#4a2f1a','#3f6a8a','#5a7a3a','#6a5a2a'];
+const CH=['St. Martin','St. Anna','St. Georg','St. Marien','St. Peter'];
+const QS=[
+ {k:'home',l:'Heimat',q:'Woher?',s:['im Mühlweg','in der Schmiedegasse','in der Bahnhofstraße','am Brunnen','in der Lindenallee'],t:s=>'Ich wohne '+s+'.'},
+ {k:'job',l:'Beruf',q:'Beruf?',s:['Tischlerei','Schule','Backstube','Pflegeheim','Hof','Schneiderei'],t:s=>'Ich arbeite: '+s+'.'},
+ {k:'fam',l:'Familie',q:'Familie?',s:['allein','Tochter Lena','Bruder Jonas','Frau, zwei Kinder','kranke Mutter'],t:s=>'Zu Hause sind: '+s+'.'},
+ {k:'ch',l:'Kirche',q:'Name der Kirche?',s:CH,t:s=>'Unsere Kirche? '+s+'.'}];
+const rnd=n=>Math.floor(Math.random()*n),pick=a=>a[rnd(a.length)],shuffle=a=>a.map(v=>[Math.random(),v]).sort((p,q)=>p[0]-q[0]).map(p=>p[1]);
+const sh=(h,a)=>{const n=parseInt(h.slice(1),16),f=v=>Math.max(0,Math.min(255,v+a));return'rgb('+f(n>>16)+','+f(n>>8&255)+','+f(n&255)+')'};
+
+// ---------- 3D-Szene ----------
+const cvs=document.getElementById('g');
+const R=new THREE.WebGLRenderer({canvas:cvs,antialias:false});
+const sc=new THREE.Scene();sc.background=new THREE.Color(0x050302);sc.fog=new THREE.FogExp2(0x050302,.11);
+const cam=new THREE.PerspectiveCamera(72,1,.1,40);cam.rotation.order='YXZ';
+sc.add(new THREE.AmbientLight(0x4a382a,1.3));
+const torch=new THREE.PointLight(0xffd9a0,1.1,8);cam.add(torch);sc.add(cam);
+[[6,2.4,2,0xff9a50,.8],[6,2.4,6,0xffb070,.6],[10.5,2.4,1.5,0xff6a30,.5],[2,2.4,2,0xffb070,.5]].forEach(a=>{const l=new THREE.PointLight(a[3],a[4],7);l.position.set(a[0],a[1],a[2]);sc.add(l)});
+const doorL=new THREE.PointLight(0xffa040,0,5);doorL.position.set(6,1.8,7.3);sc.add(doorL);
+function size(){const s=Math.max(1,Math.round(innerHeight/430));R.setSize(Math.floor(innerWidth/s),Math.floor(innerHeight/s),false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}
+addEventListener('resize',size);size();
+
+function mkTex(w,draw,rx,ry){const c=document.createElement('canvas');c.width=c.height=w;draw(c.getContext('2d'),w);const t=new THREE.CanvasTexture(c);t.magFilter=THREE.NearestFilter;t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rx||1,ry||1);return t}
+const L=(c,o)=>new THREE.MeshLambertMaterial(Object.assign({color:c},o));
+const BOX=[];
+function bx(x,y,z,w,h,d,m,solid){const q=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),typeof m==='number'?L(m):m);q.position.set(x,y,z);sc.add(q);if(solid)BOX.push({x1:x-w/2,z1:z-d/2,x2:x+w/2,z2:z+d/2});return q}
+const wood=mkTex(128,(q,w)=>{const B=['#5a4128','#4a3623','#53391f','#46301e'];for(let i=0;i<8;i++){const y=i*16;q.fillStyle=B[i%4];q.fillRect(0,y,w,16);for(let j=0;j<16;j++){q.fillStyle='rgba(0,0,0,.13)';q.fillRect(rnd(w),y+rnd(16),rnd(34)+8,1)}for(let j=0;j<3;j++){q.fillStyle='rgba(255,220,160,.06)';q.fillRect(rnd(w),y+rnd(14),rnd(40)+10,1)}q.fillStyle='#21160d';q.fillRect(0,y,w,1);q.fillRect(rnd(w),y,1,16)}},3,2);
+const wp=mkTex(128,(q,w)=>{q.fillStyle='#6b5d44';q.fillRect(0,0,w,w);for(let x=0;x<w;x+=16){q.fillStyle=(x/16)%2?'#75664b':'#5e5139';q.fillRect(x,0,16,92)}
+ q.fillStyle='#8f7a52';for(let x=8;x<w;x+=32)for(let y=10;y<88;y+=26){q.fillRect(x-1,y-4,2,8);q.fillRect(x-4,y-1,8,2);q.fillRect(x+7,y+9,3,3)}
+ for(let i=0;i<260;i++){q.fillStyle='rgba(20,10,0,.07)';q.fillRect(rnd(w),rnd(92),1,rnd(8)+1)}
+ q.fillStyle='#3a2a1c';q.fillRect(0,92,w,36);for(let x=0;x<w;x+=32){q.fillStyle='#4d3925';q.fillRect(x+3,98,26,26);q.fillStyle='#2a1c10';q.fillRect(x+3,98,26,2);q.fillRect(x+3,98,2,26)}
+ q.fillStyle='#614833';q.fillRect(0,89,w,5)});
+const doorT=mkTex(64,(q,w)=>{q.fillStyle='#5a3a1f';q.fillRect(0,0,w,w);for(let x=0;x<w;x+=13){q.fillStyle='#3d2812';q.fillRect(x,0,1,w)}for(let i=0;i<30;i++){q.fillStyle='rgba(0,0,0,.15)';q.fillRect(rnd(w),rnd(w),1,rnd(8)+2)}q.fillStyle='#46301a';q.fillRect(10,6,44,22);q.fillRect(10,34,44,24);q.fillStyle='#2a1a0a';q.fillRect(10,6,44,2);q.fillRect(10,34,44,2)});
+const fire=mkTex(64,q=>{const g=q.createLinearGradient(0,0,0,64);g.addColorStop(0,'#1a0a05');g.addColorStop(.7,'#ff7a2a');g.addColorStop(1,'#ffd27a');q.fillStyle=g;q.fillRect(0,0,64,64)});
+const plaid=(a,b)=>mkTex(32,(q,w)=>{q.fillStyle=a;q.fillRect(0,0,w,w);q.fillStyle=b;for(let i=0;i<w;i+=8){q.fillRect(i,0,3,w);q.fillRect(0,i,w,3)}});
+const books=mkTex(64,(q,w)=>{q.fillStyle='#1a120a';q.fillRect(0,0,w,w);for(let r=0;r<4;r++){let x=1;while(x<62){const bw=3+rnd(4);q.fillStyle=pick(['#6a2a22','#2d4a5a','#4a5a2a','#8a6a2a','#3a2a4a','#7a7060']);q.fillRect(x,r*16+2+rnd(3),bw,13);x+=bw+1}q.fillStyle='#4a3623';q.fillRect(0,r*16+15,w,1)}});
+const rugT=mkTex(64,(q,w)=>{q.fillStyle='#5a1f1a';q.fillRect(0,0,w,w);q.fillStyle='#c9a460';q.fillRect(2,2,60,2);q.fillRect(2,60,60,2);q.fillRect(2,2,2,60);q.fillRect(60,2,2,60);q.fillStyle='#2a3a4a';q.beginPath();q.moveTo(32,10);q.lineTo(54,32);q.lineTo(32,54);q.lineTo(10,32);q.fill();q.fillStyle='#c9a460';q.fillRect(28,28,8,8)});
+const radioT=mkTex(64,(q,w)=>{q.fillStyle='#7a4a24';q.fillRect(0,0,w,w);q.fillStyle='#1a0f08';q.fillRect(5,6,32,52);for(let y=9;y<56;y+=3){q.fillStyle='#3a2a1a';q.fillRect(7,y,28,1)}q.fillStyle='#c8a050';q.fillRect(41,8,18,12);q.fillStyle='#e8b860';for(let x=43;x<58;x+=3)q.fillRect(x,10,1,7);q.fillStyle='#d9d0b8';q.beginPath();q.arc(50,34,6,0,7);q.fill();q.beginPath();q.arc(50,50,5,0,7);q.fill();q.fillStyle='#222';q.fillRect(50,28,1,6);q.fillRect(50,46,1,4)});
+const pic=mkTex(64,(q,w)=>{const g=q.createLinearGradient(0,0,0,64);g.addColorStop(0,'#c98a4a');g.addColorStop(.6,'#e8c080');g.addColorStop(1,'#5a6a3a');q.fillStyle=g;q.fillRect(0,0,w,w);q.fillStyle='#3a4a2a';q.beginPath();q.moveTo(0,50);q.quadraticCurveTo(20,30,40,46);q.quadraticCurveTo(54,38,64,48);q.lineTo(64,64);q.lineTo(0,64);q.fill()});
+
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(12,8),L(0xffffff,{map:wood}));floor.rotation.x=-Math.PI/2;floor.position.set(6,0,4);sc.add(floor);
+const ceil=new THREE.Mesh(new THREE.PlaneGeometry(12,8),L(0x2a2018));ceil.rotation.x=Math.PI/2;ceil.position.set(6,2.8,4);sc.add(ceil);
+bx(6,2.7,6,12,.18,.22,0x3a2616);bx(6,2.7,2,12,.18,.22,0x3a2616);
+function wall(x1,z1,x2,z2){const t=wp.clone();t.needsUpdate=true;t.repeat.set(Math.max(x2-x1,z2-z1)/3,1);return bx((x1+x2)/2,1.4,(z1+z2)/2,x2-x1,2.8,z2-z1,L(0xffffff,{map:t}),1)}
+const wh=(z,a,b)=>wall(a,z-.1,b,z+.1),wv=(x,a,b)=>wall(x-.1,a,x+.1,b);
+wh(0,0,12);wh(8,0,5.5);wh(8,6.5,12);wh(4,0,1.5);wh(4,2.5,5.5);wh(4,6.5,9.5);wh(4,10.5,12);wv(0,0,8);wv(12,0,8);wv(4,0,4);wv(8,0,4);
+// Tür
+bx(6,1.1,7.99,1,2.2,.2,L(0xffffff,{map:doorT}),1);
+bx(5.46,1.15,7.98,.08,2.3,.24,0x2a1a0c);bx(6.54,1.15,7.98,.08,2.3,.24,0x2a1a0c);bx(6,2.26,7.98,1.2,.1,.24,0x2a1a0c);bx(6,2.55,8,1.1,.5,.2,0x6b5a45);
+bx(6.38,1.05,7.86,.05,.05,.1,0xb08a40);bx(6.38,1.05,7.8,.14,.03,.03,0xb08a40);
+bx(6,1.6,7.88,.07,.07,.05,0x000000);
+// Fenster
+[2,6,10.5].forEach(x=>{const m=new THREE.Mesh(new THREE.PlaneGeometry(1.4,1.1),new THREE.MeshBasicMaterial({map:fire}));m.position.set(x,1.5,.12);sc.add(m);
+ bx(x,1.5,.14,.05,1.1,.04,0x1a120a);bx(x,1.5,.14,1.4,.05,.04,0x1a120a);bx(x,2.07,.14,1.5,.07,.05,0x2a1a0c);bx(x,.94,.14,1.5,.07,.08,0x2a1a0c);bx(x-.78,1.5,.14,.07,1.2,.05,0x2a1a0c);bx(x+.78,1.5,.14,.07,1.2,.05,0x2a1a0c);
+ bx(x-.92,1.45,.17,.2,1.5,.07,0x5a2a26);bx(x+.92,1.45,.17,.2,1.5,.07,0x5a2a26)});
+const winL=new THREE.PointLight(0xff6a20,.7,5);winL.position.set(6,1.5,.6);sc.add(winL);
+// Deckenlampen
+[[6,2],[6,6],[10.5,1.5],[2,2]].forEach(a=>{bx(a[0],2.6,a[1],.02,.35,.02,0x111111);const s=new THREE.Mesh(new THREE.ConeGeometry(.2,.16,8,1,true),L(0x3a2a14,{side:THREE.DoubleSide}));s.position.set(a[0],2.4,a[1]);sc.add(s);const b=new THREE.Mesh(new THREE.SphereGeometry(.05,6,6),new THREE.MeshBasicMaterial({color:0xffe0a0}));b.position.set(a[0],2.36,a[1]);sc.add(b)});
+// Möbel-Helfer
+const WD=L(0xffffff,{map:wood});
+function table(x,z,w,d){bx(x,.72,z,w,.06,d,WD,1);[[-1,-1],[1,-1],[-1,1],[1,1]].forEach(s=>bx(x+s[0]*(w/2-.07),.35,z+s[1]*(d/2-.07),.07,.7,.07,0x3a2616))}
+function chair(x,z,r){const g=new THREE.Group();g.position.set(x,0,z);g.rotation.y=r;sc.add(g);[[0,.24,0,.4,.05,.4],[0,.52,-.18,.4,.5,.04]].forEach(a=>{const q=new THREE.Mesh(new THREE.BoxGeometry(a[3],a[4],a[5]),WD);q.position.set(a[0],a[1],a[2]);g.add(q)});[[-.17,-.17],[.17,-.17],[-.17,.17],[.17,.17]].forEach(a=>{const q=new THREE.Mesh(new THREE.BoxGeometry(.04,.24,.04),L(0x3a2616));q.position.set(a[0],.12,a[1]);g.add(q)})}
+// Bett
+bx(10.4,.22,1.3,2.8,.3,2.1,0x3a2616,1);bx(10.35,.45,1.3,2.6,.18,1.9,0xcfc6b0);
+bx(10.1,.56,1.3,1.8,.08,1.96,L(0xffffff,{map:plaid('#7a2a26','#a8504a')}));bx(9.15,.5,1.3,.1,.2,1.96,L(0xffffff,{map:plaid('#7a2a26','#a8504a')}));
+bx(11.3,.6,.85,.5,.14,.6,0xe0d8c4);bx(11.3,.6,1.75,.5,.14,.6,0xe0d8c4);bx(11.85,.7,1.3,.1,.95,2.2,0x3a2616);
+bx(11.5,.3,2.75,.6,.6,.5,WD,1);bx(11.5,.7,2.75,.12,.2,.12,0xe8c070);
+// Radio-Schrank + Radio
+bx(9.4,.3,7.62,.8,.6,.56,WD,1);bx(9.4,.605,7.62,.86,.03,.6,0x2a1a0c);
+const rm=[L(0x6a3a1c),L(0x6a3a1c),L(0x7a4a24),L(0x6a3a1c),L(0x6a3a1c),new THREE.MeshBasicMaterial({map:radioT,color:0xcccccc})];
+bx(9.4,.8,7.6,.62,.36,.26,rm);
+const an=bx(9.62,1.1,7.62,.012,.55,.012,0xb0b0b0);an.rotation.z=-.35;
+// Sofa
+const FB=L(0xffffff,{map:plaid('#4a3a2e','#5a4838')});
+bx(6,.3,2.15,2,.5,.7,FB,1);bx(6,.78,2.4,2,.55,.2,FB);bx(5.1,.5,2.15,.2,.6,.7,FB);bx(6.9,.5,2.15,.2,.6,.7,FB);bx(5.55,.58,2.02,.85,.12,.5,0x5a4a3a);bx(6.45,.58,2.02,.85,.12,.5,0x5a4a3a);
+// Küche
+bx(1.6,.45,.8,2,.9,.8,WD,1);bx(1.6,.93,.8,2.06,.05,.86,0x8a8070);[.6,1.6,2.2].forEach(x=>bx(x,.45,1.205,.02,.8,.01,0x1a120a));
+bx(1.1,.3,.7,.5,.12,.5,0x2a2a2a);table(1.2,3.1,1,1);BOX.push({x1:.7,z1:2.6,x2:1.7,z2:3.6});chair(2.1,3.1,Math.PI/2);chair(1.2,2.3,0);
+// Esstisch mit Kerze
+table(2.8,5.6,1.6,.9);BOX.push({x1:2,z1:5.15,x2:3.6,z2:6.05});chair(2.3,6.35,Math.PI);chair(3.3,4.85,0);
+const cd=new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,.14,6),L(0xe8e0c8));cd.position.set(2.8,.82,5.6);sc.add(cd);
+const fl=new THREE.Mesh(new THREE.SphereGeometry(.028,6,6),new THREE.MeshBasicMaterial({color:0xffd070}));fl.position.set(2.8,.92,5.6);sc.add(fl);
+const candL=new THREE.PointLight(0xffa860,.6,5);candL.position.set(2.8,1.1,5.6);sc.add(candL);
+// Regal, Teppich, Bild
+bx(.25,1,6,.3,2,2.1,0x2a1a0c,1);{const m=new THREE.Mesh(new THREE.PlaneGeometry(1.9,1.8),new THREE.MeshBasicMaterial({map:books,color:0x999999}));m.rotation.y=Math.PI/2;m.position.set(.41,1,6);sc.add(m)}
+{const m=new THREE.Mesh(new THREE.PlaneGeometry(3,1.8),L(0xffffff,{map:rugT}));m.rotation.x=-Math.PI/2;m.position.set(6,.012,5.6);sc.add(m)}
+bx(3.6,1.7,7.88,.8,.6,.05,0x2a1a0c);{const m=new THREE.Mesh(new THREE.PlaneGeometry(.68,.48),new THREE.MeshBasicMaterial({map:pic,color:0xaaaaaa}));m.rotation.y=Math.PI;m.position.set(3.6,1.7,7.85);sc.add(m)}
+
+// ---------- Charaktere ----------
+function dface(c,g,big){
+  const sk=g.sk,A=g.age;
+  if(big){c.fillStyle='#0a0705';c.fillRect(0,0,260,260);c.fillStyle=sh(sk,-35);c.fillRect(102,170,56,60);ell(c,130,288,122,72,g.cl);ell(c,130,236,34,16,sh(sk,-30))}
+  if(g.hs==1)ell(c,130,150,80,112,g.hr);
+  ell(c,64,128,9,17,sh(sk,-18));ell(c,196,128,9,17,sh(sk,-18));
+  const gr=c.createRadialGradient(112,100,8,130,128,100);gr.addColorStop(0,sh(sk,16));gr.addColorStop(.7,sk);gr.addColorStop(1,sh(sk,-40));ell(c,130,125,66,84,gr);
+  ell(c,96,152,16,9,'rgba(200,90,70,.13)');ell(c,164,152,16,9,'rgba(200,90,70,.13)');
+  c.lineCap='round';
+  if(A>42){c.strokeStyle='rgba(50,28,15,.3)';c.lineWidth=1.5;for(let i=0;i<3;i++){c.beginPath();c.moveTo(94,84+i*6);c.quadraticCurveTo(130,80+i*6,166,84+i*6);c.stroke()}[[-1,70],[1,190]].forEach(a=>{c.beginPath();c.moveTo(a[1],118);c.lineTo(a[1]+a[0]*8,122);c.moveTo(a[1],124);c.lineTo(a[1]+a[0]*8,130);c.stroke()});c.beginPath();c.moveTo(108,160);c.quadraticCurveTo(100,176,108,190);c.moveTo(152,160);c.quadraticCurveTo(160,176,152,190);c.stroke()}
+  [100,160].forEach((px,j)=>{const d=j?-1:1;ell(c,px,120,14,8,'#ece6d6');ell(c,px+d,120,6.5,6.5,g.ey);ell(c,px+d,120,2.8,2.8,'#050302');ell(c,px-2,118,1.6,1.6,'rgba(255,255,255,.85)');
+    c.strokeStyle=sh(sk,-70);c.lineWidth=2.5;c.beginPath();c.ellipse(px,120,14,8,0,3.35,6.05);c.stroke();c.strokeStyle='rgba(60,30,40,.25)';c.lineWidth=2;c.beginPath();c.ellipse(px,132,12,4,0,.2,2.9);c.stroke();
+    c.strokeStyle=sh(g.hr,-10);c.lineWidth=g.f?3:5;c.beginPath();c.moveTo(px-d*14,j?105:103);c.quadraticCurveTo(px,97,px+d*14,j?103:105);c.stroke()});
+  c.fillStyle='rgba(60,30,15,.2)';c.beginPath();c.moveTo(130,116);c.lineTo(120,156);c.lineTo(140,156);c.fill();ell(c,124,156,3.5,2,'#2a150c');ell(c,136,156,3.5,2,'#2a150c');c.strokeStyle='rgba(255,230,190,.25)';c.lineWidth=2;c.beginPath();c.moveTo(131,120);c.lineTo(131,150);c.stroke();
+  if(g.bd){c.globalAlpha=.6;c.fillStyle=g.hr;c.beginPath();c.ellipse(130,150,60,72,0,.15,2.99);c.fill();c.globalAlpha=1}
+  const lp=g.f?'#a24a48':'#8a4a40';ell(c,130,182,19,5,lp);ell(c,130,188,17,5,sh(lp,14));c.strokeStyle='#2a0f0c';c.lineWidth=1.5;c.beginPath();c.moveTo(111,184);c.quadraticCurveTo(130,187,149,184);c.stroke();
+  if(g.gl){c.strokeStyle='#15110d';c.lineWidth=3;c.fillStyle='rgba(200,220,255,.12)';[100,160].forEach(px=>{c.beginPath();c.rect(px-19,106,38,26);c.fill();c.stroke()});c.beginPath();c.moveTo(119,116);c.lineTo(141,116);c.stroke()}
+  c.fillStyle=g.hr;
+  if(g.hs==2)ell(c,130,66,64,26,'rgba(0,0,0,.12)');
+  else if(g.hs==3){for(let i=0;i<16;i++){const a=3.3+i*.19;ell(c,130+Math.cos(a)*62,86+Math.sin(a)*60,14,14,g.hr)}ell(c,130,70,60,26,g.hr)}
+  else{ell(c,130,66,70,36,g.hr);c.fillRect(62,80,9,34);c.fillRect(189,80,9,34);ell(c,130,86,56,12,g.hr);if(g.hs==1){c.fillRect(56,80,15,125);c.fillRect(189,80,15,125)}if(g.hs==4)ell(c,130,24,16,14,g.hr)}
+}
+function shirtTex(g){return mkTex(32,(q,w)=>{q.fillStyle=g.cl;q.fillRect(0,0,w,w);if(g.cp==1){q.fillStyle=sh(g.cl,26);for(let y=0;y<w;y+=8)q.fillRect(0,y,w,3)}else if(g.cp==2){q.fillStyle=sh(g.cl,-32);for(let i=0;i<w;i+=8){q.fillRect(i,0,2,w);q.fillRect(0,i,w,2)}}for(let i=0;i<40;i++){q.fillStyle='rgba(0,0,0,.08)';q.fillRect(rnd(w),rnd(w),1,1)}})}
+function headTex(g){return mkTex(128,q=>{q.fillStyle=g.sk;q.fillRect(0,0,128,128);q.save();q.translate(64,66);q.scale(.88,.7);q.translate(-130,-125);dface(q,g,0);q.restore()})}
+function person(g){
+  const G=new THREE.Group(),skin=L(g.sk),hair=L(g.hr),pt=(w,h,d,x,y,z,m,p)=>{const q=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);q.position.set(x,y,z);(p||G).add(q);return q};
+  const shirt=L(0xffffff,{map:shirtTex(g)}),pants=L(g.pc),shoe=L(0x151210);
+  pt(.16,.08,.26,-.12,.04,.03,shoe);pt(.16,.08,.26,.12,.04,.03,shoe);pt(.15,.76,.18,-.12,.46,0,pants);pt(.15,.76,.18,.12,.46,0,pants);
+  pt(.52,.66,.28,0,1.17,0,shirt);pt(.5,.06,.3,0,.86,0,L(0x2a1a0c));
+  const ar=[-1,1].map(s=>{const a=new THREE.Group();a.position.set(s*.34,1.46,0);pt(.12,.34,.14,0,-.17,0,shirt,a);pt(.1,.3,.12,0,-.47,0,skin,a);G.add(a);return a});
+  pt(.1,.1,.1,0,1.55,0,skin);
+  const hd=new THREE.Group();hd.position.y=1.64;G.add(hd);
+  const bald=g.hs==2,hh=bald?skin:hair;
+  const fm=new THREE.MeshLambertMaterial({map:headTex(g)});
+  pt(.3,.34,.3,0,0,0,[skin,skin,hh,skin,fm,hh],hd);
+  if(!bald)pt(g.hs==3?.37:.33,g.hs==3?.14:.09,g.hs==3?.37:.33,0,.17,0,hair,hd);
+  if(g.hs==1){pt(.33,.42,.08,0,-.04,-.15,hair,hd);pt(.04,.3,.28,-.17,-.02,-.02,hair,hd);pt(.04,.3,.28,.17,-.02,-.02,hair,hd)}
+  if(g.hs==4)pt(.12,.12,.12,0,.26,-.1,hair,hd);
+  if(g.gl)pt(.28,.05,.02,0,.03,.16,L(0x15110d),hd);
+  G.scale.set(g.b,g.h,g.b);G.userData={ar,hd};return G;
+}
+const SLOTS=[[4.8,1],[7.2,1],[4.7,3.4],[7.3,3.4],[5.5,.7],[6.6,.7]];
+
+// ---------- Zustand ----------
+let S={phase:'title',inside:[],queue:[],active:[],lives:3,guilt:0,night:0,energy:0,church:0},yaw=0,pitch=0,bob=0,P=new THREE.Vector3(6,1.6,6.5),keys={},ac,msg='',msgT=0,atDoor=false,cur=null,used=[];
+const hud=document.getElementById('hud'),pr=document.getElementById('pr');
+function say(m){msg=m;msgT=4}
+function mkGuest(){
+  const f=Math.random()<.5,age=16+rnd(62);let name;do{name=pick(f?FF:MM)+' '+pick(SUR)}while(used.includes(name));used.push(name);
+  const g={name,vis:Math.random()<.5,f,age,sk:pick(SK),hr:age>62?'#b8b4aa':pick(HR),hs:f?pick([0,1,1,4]):pick([0,0,2,3]),bd:!f&&age>22&&Math.random()<.4,gl:Math.random()<.25,cl:pick(CL),cp:rnd(3),pc:pick(PC),ey:pick(EY),h:.94+Math.random()*.13,b:.9+Math.random()*.22,t:{},rev:{},notes:[],ans:{},hist:{},last:'',
+    fx:{home:rnd(5),job:rnd(6),fam:rnd(5),ch:Math.random()<.9?S.church:rnd(5)}};
+  if(g.vis)shuffle(KEYS).slice(0,3).forEach(k=>g.t[k]=1);
+  return g;
+}
+function startNight(){
+  S.night++;S.active=shuffle(KEYS).slice(0,2);S.energy=ENERGY;S.door=null;S.timer=3;S.kn=0;
+  S.inside.forEach(i=>i.g.rev={});
+  S.queue=[];for(let i=0;i<2+(S.night%2)+(S.night>4?1:0);i++)S.queue.push(mkGuest());
+  P.set(6,1.6,6.5);yaw=0;pitch=0;closeUI();say('Nacht '+S.night+'. Hör das Radio an. '+(S.inside.length?'Deine Gäste sind noch da.':''));
+}
+function newGame(){S.inside.forEach(i=>sc.remove(i.m));used=[];S={phase:'walk',inside:[],queue:[],active:[],lives:3,guilt:0,night:0,energy:0,church:rnd(5)};startNight();cvs.requestPointerLock()}
+function snd(f){try{ac=ac||new AudioContext();f()}catch(e){}}
+function knock(){snd(()=>{for(let i=0;i<3;i++){const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime+i*.22;o.frequency.value=90;o.connect(g);g.connect(ac.destination);g.gain.setValueAtTime(.6,t);g.gain.exponentialRampToValueAtTime(.001,t+.15);o.start(t);o.stop(t+.16)}})}
+function shot(){snd(()=>{const n=ac.sampleRate*.3,b=ac.createBuffer(1,n,ac.sampleRate),d=b.getChannelData(0);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3);const s=ac.createBufferSource();s.buffer=b;s.connect(ac.destination);s.start()});const f=document.getElementById('fl');f.style.transition='none';f.style.opacity=.9;setTimeout(()=>{f.style.transition='opacity .4s';f.style.opacity=0},60)}
+
+// ---------- Overlay ----------
+const ov=document.getElementById('ov'),kc=document.getElementById('k'),k=kc.getContext('2d'),info=document.getElementById('info'),btns=document.getElementById('btns');
+function ui(html,list,draw){
+  document.exitPointerLock();ov.hidden=false;S.phase='ui';info.innerHTML=html;btns.innerHTML='';
+  list.forEach(([l,f,d,cls])=>{if(l==='|'){btns.appendChild(document.createElement('br'));return}const b=document.createElement('button');b.textContent=l;b.disabled=!!d;if(cls)b.className=cls;b.onclick=f;btns.appendChild(b)});
+  kc.style.display=draw?'block':'none';if(draw)draw(k,cur&&cur.g);
+}
+function closeUI(){ov.hidden=true;S.phase='walk';cvs.requestPointerLock()}
+function end(){
+  const hum=S.inside.filter(i=>!i.g.vis).length,vis=S.inside.length-hum;let t,m;
+  if(S.lives<=0){t='Du bist tot.';m='Die Besucher haben dich in der Dunkelheit gefunden.'}
+  else if(vis>0){t='Du hast überlebt, aber nicht allein.';m='Unter deinen Gästen sitzt noch ein Besucher. Du hast ihn nie erkannt.'}
+  else if(S.guilt>=3){t='Das Haus ist sicher, aber leer.';m='Du hast zu viele Menschen vor die Tür gesetzt. Im Dorf redet niemand mehr mit dir.'}
+  else if(hum>=4){t='Das Haus wird zur Zuflucht.';m='Du hast die Besucher aussortiert. Am Morgen sitzen Menschen bei dir am Tisch.'}
+  else{t='Du hast überlebt.';m='Du bist durch '+NIGHTS+' Nächte gekommen. Ob das genug war, weißt du selbst.'}
+  ui('<h2>'+t+'</h2>'+m+'<br>Menschen im Haus: '+hum+' · Besucher im Haus: '+vis+' · Schuld: '+S.guilt+' · Leben: '+Math.max(S.lives,0),[['Neu starten',newGame,0,'go']]);S.phase='end';
+}
+function sleep(){
+  const r=['Der Morgen graut. Nacht '+S.night+' ist vorbei.'],p=.35+S.night*.05;
+  S.inside.filter(i=>i.g.vis).forEach(i=>{if(Math.random()<p){const hs=S.inside.filter(x=>!x.g.vis);
+    if(hs.length&&Math.random()<.45){const v=pick(hs);S.inside=S.inside.filter(x=>x!==v);sc.remove(v.m);r.push(v.g.name+' fehlt. Auf dem Boden sind Spuren.')}
+    else{S.lives--;r.push('Im Dunkeln hat dich etwas gepackt. Du hast dich losgerissen.')}}});
+  if(r.length==1)r.push('Die Nacht war still. Heißt das etwas?');
+  if(S.lives<=0||S.night>=NIGHTS)return ui(r.join('<br>'),[['Weiter',end]]);
+  ui(r.join('<br>')+'<br>Leben: '+S.lives+' · Gäste im Haus: '+S.inside.length,[['Neuer Abend',startNight,0,'go']]);
+}
+function histTxt(g){return QS.filter(Q=>g.hist[Q.k]).map(Q=>Q.l+': '+g.hist[Q.k].map(h=>Q.s[h[1]]+' (N'+h[0]+')').join(', ')).join('<br>')}
+function peep(view){
+  const g=cur.g;view=view||'face';
+  const b=[['Gesicht',()=>peep('face')],['|']];
+  KEYS.forEach(q=>b.push([LAB[q]+(g.rev[q]!==undefined?' ✓':''),()=>inspect(q),S.energy<=0&&g.rev[q]===undefined]));
+  b.push(['|']);QS.forEach((Q,i)=>b.push([Q.q,()=>talk(i)]));b.push(['|']);
+  if(atDoor)b.push(['Einlassen',()=>decide(true),S.inside.length>=SLOTS.length,'go'],['Abweisen',()=>decide(false),0,'no']);
+  else b.push(['Erledigen',()=>kill(cur),0,'no']);
+  b.push(['Zurück',closeUI]);
+  ui('<b>'+g.name+'</b>, '+g.age+' · Energie: '+'▮'.repeat(S.energy)+'<br>'+(g.last||'')+'<div class="nt">'+histTxt(g)+(g.notes.length?'<br>'+g.notes.slice(-6).join('<br>'):'')+'</div>',b,(c)=>V[view](c,g));
+}
+function inspect(q){const g=cur.g;if(g.rev[q]===undefined){S.energy--;const act=S.active.includes(q);g.rev[q]=act?!!g.t[q]:(!!g.t[q]||Math.random()<.25);g.notes.push('N'+S.night+' '+LAB[q]+': '+(g.rev[q]?'auffällig':'normal'))}g.last=g.rev[q]?BAD[q]:OK[q];peep(q)}
+function talk(i){const g=cur.g,Q=QS[i],o=g.ans[Q.k];let ix;
+  if(!g.vis)ix=g.fx[Q.k];else if(o&&o.n===S.night)ix=o.i;else ix=(Q.k==='ch'&&Math.random()<.3)?S.church:rnd(Q.s.length);
+  g.ans[Q.k]={i:ix,n:S.night};const h=g.hist[Q.k]=g.hist[Q.k]||[];if(!h.some(x=>x[0]===S.night))h.push([S.night,ix]);
+  g.last='„'+Q.t(Q.s[ix])+'“';peep('face')}
+function decide(inn){
+  const g=cur.g;let m;S.door=null;S.timer=4+Math.random()*4;
+  if(inn){const sl=SLOTS.findIndex((_,i)=>!S.inside.some(x=>x.s===i)),p=SLOTS[sl],mesh=person(g);mesh.position.set(p[0],0,p[1]);sc.add(mesh);S.inside.push({g,m:mesh,s:sl});m=g.name+' kommt herein und sucht sich einen Platz.'}
+  else{if(!g.vis)S.guilt++;m='Du schiebst den Riegel vor. Draußen wird es still.'}
+  ui(m,[['Weiter',closeUI]]);
+}
+function kill(i){
+  shot();S.inside=S.inside.filter(q=>q!==i);sc.remove(i.m);
+  if(i.g.vis)ui('Der Körper fällt in sich zusammen. Es war ein Besucher.',[['Weiter',closeUI]]);
+  else{S.guilt+=2;ui('Es war ein Mensch. Du hast einen Unschuldigen getötet.',[['Weiter',closeUI]])}
+}
+// ---------- Nahaufnahmen ----------
+const V={};
+function ell(c,x0,y0,rx,ry,col){c.fillStyle=col;c.beginPath();c.ellipse(x0,y0,rx,ry,0,0,7);c.fill()}
+V.face=(c,g)=>{
+  c.fillStyle='#0a0705';c.fillRect(0,0,260,260);ell(c,130,270,100,60,'#241a12');
+  ell(c,130,125,66,82,g.sk);ell(c,130,70,70,40,g.hr);
+  [100,160].forEach(px=>{ell(c,px,118,12,7,'#eee');ell(c,px,118,4,4,'#2a1d10')});
+  c.strokeStyle='#7a5f40';c.lineWidth=3;c.beginPath();c.moveTo(130,128);c.lineTo(124,152);c.lineTo(136,152);c.stroke();
+  c.strokeStyle='#3a1d12';c.beginPath();c.moveTo(108,178);c.quadraticCurveTo(130,186,152,177);c.stroke();
+  c.strokeStyle='#000';c.lineWidth=90;c.beginPath();c.arc(130,130,150,0,7);c.stroke();
+};
+V.mouth=(c,g)=>{
+  c.fillStyle='#4a1410';c.fillRect(0,0,260,260);c.fillStyle='#7a2f2a';c.fillRect(0,0,260,64);c.fillRect(0,196,260,64);
+  if(g.t.mouth){
+    for(let i=0;i<12;i++){const b=8+i*21;c.fillStyle='#e6ddc2';
+      c.beginPath();c.moveTo(b,64);c.lineTo(b+19,64);c.lineTo(b+10,64+50+(i%3)*9);c.fill();
+      c.beginPath();c.moveTo(b+10,196);c.lineTo(b+29,196);c.lineTo(b+19,196-48-(i%2)*10);c.fill()}
+  }else{
+    for(let i=0;i<8;i++){c.fillStyle=i==3?'#cdbf94':'#e6ddc2';c.fillRect(20+i*28,64,25,i==3?30:40);c.fillRect(20+i*28,196-38,25,38)}
+  }
+};
+V.eyes=(c,g)=>{
+  c.fillStyle=g.sk;c.fillRect(0,0,260,260);const v=g.t.eyes;
+  [68,192].forEach(px=>{
+    ell(c,px,130,v?58:46,v?62:26,v?'#e6e2c8':'#eee');
+    if(v){c.strokeStyle='#a8322a';c.lineWidth=1.5;for(let i=0;i<10;i++){const a=i*.63;c.beginPath();c.moveTo(px+Math.cos(a)*56,130+Math.sin(a)*60);c.lineTo(px+Math.cos(a)*24,130+Math.sin(a)*24);c.stroke()}}
+    ell(c,px,130,v?12:20,v?12:20,'#4a2f1a');
+    if(v){c.fillStyle='#000';c.fillRect(px-2,114,4,32)}else ell(c,px,130,8,8,'#000');
+    if(!v){c.strokeStyle='#3a2a1c';c.lineWidth=5;c.beginPath();c.ellipse(px,130,46,26,0,3.3,6.1);c.stroke();c.beginPath();c.ellipse(px,130,46,26,0,.1,3.1);c.stroke()}
+  });
+};
+V.hands=(c,g)=>{
+  c.fillStyle='#17110c';c.fillRect(0,0,260,260);const n=g.t.hands?6:5,fw=150/n;
+  c.fillStyle=g.sk;c.fillRect(55,140,150,100);
+  for(let i=0;i<n;i++){const fx=55+i*fw,hh=60+[4,0,10,0,-2,-8][i%6]+(i==0?-30:0);c.fillStyle=g.sk;c.fillRect(fx+2,140-hh,fw-4,hh+4);ell(c,fx+fw/2,140-hh,fw/2-2,8,g.sk);ell(c,fx+fw/2,140-hh+3,fw/2-6,6,'#e6d8bc')}
+  c.strokeStyle='#8a6e4c';c.lineWidth=2;c.beginPath();c.moveTo(70,200);c.lineTo(190,190);c.stroke();
+};
+V.skin=(c,g)=>{
+  const cold=g.t.skin,gr=c.createRadialGradient(130,110,10,130,110,150);
+  if(cold){gr.addColorStop(0,'#bfe6ff');gr.addColorStop(.5,'#3a7fd0');gr.addColorStop(1,'#0b1530')}
+  else{gr.addColorStop(0,'#ffe08a');gr.addColorStop(.5,'#c9511e');gr.addColorStop(1,'#2b0f12')}
+  c.fillStyle=gr;c.fillRect(0,0,260,260);c.fillStyle='rgba(0,0,0,.6)';c.fillRect(0,196,260,64);
+  c.fillStyle='#e8e0c8';c.font='bold 34px "Courier New"';c.textAlign='center';
+  c.fillText(cold?(13+Math.random()*3).toFixed(1)+' °C':(36+Math.random()*.9).toFixed(1)+' °C',130,240);c.textAlign='left';
+};
+V.shadow=(c,g)=>{
+  c.fillStyle='#2a2118';c.fillRect(0,0,260,260);const gr=c.createRadialGradient(40,60,5,40,60,230);
+  gr.addColorStop(0,'rgba(255,200,110,.85)');gr.addColorStop(1,'rgba(0,0,0,.2)');c.fillStyle=gr;c.fillRect(0,0,260,260);
+  ell(c,40,60,5,9,'#fff3c0');
+  if(!g.t.shadow){ell(c,175,115,34,40,'rgba(10,6,3,.8)');ell(c,175,215,78,60,'rgba(10,6,3,.8)')}
+};
+
+V.face=(c,g)=>{dface(c,g,1);c.strokeStyle='#000';c.lineWidth=90;c.beginPath();c.arc(130,130,150,0,7);c.stroke()};
+// ---------- Interaktion ----------
+function targets(){
+  const t=[{k:'door',x:6,z:7.5,n:S.door?'E: Spion benutzen':'Haustür'},{k:'radio',x:9.4,z:7.1,n:'E: Radio hören'},{k:'bed',x:10.4,z:2.9,n:'E: Schlafen'}];
+  S.inside.forEach(i=>t.push({k:'g',i,x:i.m.position.x,z:i.m.position.z,n:'E: '+i.g.name+' ansehen'}));return t;
+}
+function look(){
+  const fx=-Math.sin(yaw),fz=-Math.cos(yaw);let b=null,bs=9;
+  for(const o of targets()){const dx=o.x-P.x,dz=o.z-P.z,d=Math.hypot(dx,dz);if(d>0&&d<2.2&&(dx*fx+dz*fz)/d>.8&&d<bs){bs=d;b=o}}
+  return b;
+}
+function interact(){
+  if(S.phase!=='walk')return;const o=look();if(!o)return;
+  if(o.k==='door'){if(S.door){cur=S.door;atDoor=true;peep()}else say('Niemand an der Tür.')}
+  else if(o.k==='radio')ui('Das Radio rauscht. Eine Stimme: „Heute Nacht verraten sich Besucher an: <b>'+S.active.map(q=>RULE[q]).join(' und ')+'</b>. Nur darauf kannst du dich verlassen, alles andere täuscht. Besucher kennen unser Dorf nicht gut und vergessen, was sie gesagt haben. Unsere Kirche heißt <b>'+CH[S.church]+'</b>.“',[['Ausschalten',closeUI]]);
+  else if(o.k==='bed'){if(S.door||S.queue.length)say('Es sind noch Gäste unterwegs.');else sleep()}
+  else{cur=o.i;atDoor=false;peep()}
+}
+
+// ---------- Schleife ----------
+const blocked=(x,z)=>BOX.some(b=>x>b.x1-.3&&x<b.x2+.3&&z>b.z1-.3&&z<b.z2+.3);
+let last=0,tm=0;
+function loop(t){
+  const dt=Math.min((t-last)/1000,.05);last=t;tm+=dt;if(msgT>0)msgT-=dt;
+  if(S.phase==='walk'){
+    const f=(keys.w?1:0)-(keys.s?1:0),r=(keys.d?1:0)-(keys.a?1:0);
+    yaw+=((keys.arrowleft?1:0)-(keys.arrowright?1:0))*1.8*dt;pitch=Math.max(-1.2,Math.min(1.2,pitch+((keys.arrowup?1:0)-(keys.arrowdown?1:0))*1.5*dt));
+    if(f||r){const sp=2.6*dt/Math.hypot(f,r),dx=(-Math.sin(yaw)*f+Math.cos(yaw)*r)*sp,dz=(-Math.cos(yaw)*f-Math.sin(yaw)*r)*sp;
+      if(!blocked(P.x+dx,P.z))P.x+=dx;if(!blocked(P.x,P.z+dz))P.z+=dz;bob+=dt*8}
+    S.timer-=dt;
+    if(!S.door&&S.queue.length&&S.timer<=0){const g=S.queue.shift();S.door={g};S.kn=8;knock();say('Es klopft an der Haustür.')}
+    else if(S.door){S.kn-=dt;if(S.kn<=0){S.kn=8;knock()}}
+  }
+  doorL.intensity=S.door?.6+Math.sin(tm*6)*.4:0;winL.intensity=.6+Math.sin(tm*9)*.15+Math.random()*.1;
+  candL.intensity=.55+Math.sin(tm*13)*.1+Math.random()*.15;fl.scale.y=1+Math.random()*.5;
+  S.inside.forEach((i,n)=>{const m=i.m,u=m.userData;m.rotation.y=Math.atan2(P.x-m.position.x,P.z-m.position.z);
+    if(!i.g.vis){m.position.y=Math.sin(tm*1.6+n)*.012;u.hd.rotation.y=Math.sin(tm*.45+n*2)*.4;u.hd.rotation.x=Math.sin(tm*.3+n)*.08;u.ar.forEach((a,q)=>a.rotation.x=Math.sin(tm*1.2+n+q*3)*.06)}});
+  cam.position.set(P.x,1.6+Math.sin(bob)*.03,P.z);cam.rotation.set(pitch,yaw,0);
+  R.render(sc,cam);
+  const o=S.phase==='walk'&&look(),lk=document.pointerLockElement===cvs;
+  pr.textContent=S.phase==='walk'?(msgT>0?msg:(!lk?'Klicken, um die Maus zu fangen (oder ziehen zum Umsehen)':(o?o.n:''))):'';
+  hud.innerHTML='Nacht '+S.night+'/'+NIGHTS+' · Leben: '+'♥'.repeat(Math.max(S.lives,0))+' · Energie: '+'▮'.repeat(Math.max(S.energy,0))+' · Gäste: '+S.inside.length+'/'+SLOTS.length+'<br>WASD gehen · Maus schauen · E benutzen';
+  requestAnimationFrame(loop);
+}
+addEventListener('keydown',e=>{const q=e.key.toLowerCase();keys[q]=true;if(q==='e'&&!e.repeat)interact();if(q.startsWith('arrow'))e.preventDefault()});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+addEventListener('mousemove',e=>{if(S.phase!=='walk')return;if(document.pointerLockElement===cvs||e.buttons&1){yaw-=e.movementX*.0022;pitch=Math.max(-1.2,Math.min(1.2,pitch-e.movementY*.0022))}});
+cvs.addEventListener('click',()=>{if(S.phase==='walk')cvs.requestPointerLock()});
+
+ui('<h2>Nachtwache 3D</h2>Tagsüber brennt die Sonne alles nieder. Nachts klopft es. Besucher sehen aus wie Menschen, aber etwas stimmt nicht.<br><br>Hör das Radio an der Tür, prüfe Gäste am Spion (Prüfungen kosten Energie), stell Fragen und entscheide. Wen du einlässt, bleibt: auch am nächsten Abend kannst du ihn neu testen. Achte darauf, wie sie stehen und was sie sagen. Überlebe '+NIGHTS+' Nächte.',[['Spiel starten',newGame,0,'go']]);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
